@@ -644,7 +644,57 @@ func (a *Client) handleCloseRequest(pkt *client.Packet) {
 			klog.ErrorS(err, "close response send failure", err)
 			return
 		}
+		resp.GetCloseResponse().ConnectID = connID
+		resp.GetCloseResponse().Error = "Unknown connectID"
+		if err := a.Send(resp); err != nil {
+			klog.ErrorS(err, "close response send failure", err)
+			return
+		}
 	}
+}
+
+// handleConnection connects to the address on the named network, similar to
+// what net.Dial does. The only supported protocol is tcp.
+// TODO(irozzo): check if connection closed while waiting for DIAL_RSP?
+func (a *Client) handleConnection(protocol, address string, conn net.Conn) error {
+	if protocol != "tcp" {
+		return errors.New("protocol not supported")
+	}
+
+	ctx := a.connManager.AddPendingConnection(conn)
+	defer func() {
+		a.connManager.DeletePendingConnection(ctx.random)
+	}()
+
+	req := &client.Packet{
+		Type: client.PacketType_DIAL_REQ,
+		Payload: &client.Packet_DialRequest{
+			DialRequest: &client.DialRequest{
+				Protocol: protocol,
+				Address:  address,
+				Random:   ctx.random,
+			},
+		},
+	}
+	klog.V(5).InfoS("[tracing] send packet", "type", req.Type)
+
+	err := a.stream.Send(req)
+	if err != nil {
+		return err
+	}
+
+	klog.V(5).Infoln("DIAL_REQ sent to proxy server")
+
+	select {
+	case res := <-ctx.resCh:
+		if res.err != "" {
+			return errors.New(res.err)
+		}
+	case <-time.After(30 * time.Second):
+		return errors.New("dial timeout")
+	}
+
+	return nil
 }
 
 // handleConnection connects to the address on the named network, similar to
