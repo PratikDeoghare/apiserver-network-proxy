@@ -451,7 +451,13 @@ func (s *ProxyServer) serveRecvFrontend(stream client.ProxyService_ProxyServer, 
 			random := pkt.GetCloseDial().Random
 			klog.V(5).InfoS("Received DIAL_CLOSE", "random", random)
 			// Currently not worrying about backend as we do not have an established connection,
-			s.PendingDial.Remove(random)
+			if conn, ok := s.PendingDial.Get(random); ok {
+				if conn.HTTP != nil {
+					conn.HTTP.Close()
+				}
+				// GRPC connection not closeable, keepalive should eventually close.
+				s.PendingDial.Remove(random)
+			}
 			klog.V(5).Infoln("Removing pending dial request", "random", random)
 
 		case client.PacketType_DATA:
