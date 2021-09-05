@@ -235,6 +235,9 @@ type Client struct {
 	serviceAccountTokenPath string
 
 	warnOnChannelLimit bool
+
+	muConnIDToDest sync.Mutex
+	connIDToDest   map[int64]client.Network
 }
 
 func newAgentClient(address, agentID, agentIdentifiers string, cs *ClientSet, opts ...grpc.DialOption) (*Client, int, error) {
@@ -250,6 +253,7 @@ func newAgentClient(address, agentID, agentIdentifiers string, cs *ClientSet, op
 		serviceAccountTokenPath: cs.serviceAccountTokenPath,
 		connManager:             newConnectionManager(),
 		warnOnChannelLimit:      cs.warnOnChannelLimit,
+		connIDToDest:            make(map[int64]client.Network),
 	}
 	serverCount, err := a.Connect()
 	if err != nil {
@@ -450,6 +454,7 @@ func (a *Client) Serve() {
 // The requests include things like opening a connection to a server,
 // streaming data and close the connection.
 func (a *Client) ServeBiDirectional() {
+	klog.Infoln("serving bidi")
 	defer func() {
 		// close all of conns with remote when Client exits
 		for _, connCtx := range a.connManager.List() {
@@ -530,9 +535,7 @@ func (a *Client) handleDialRequest(pkt *client.Packet) {
 	}
 	metrics.Metrics.ObserveDialLatency(time.Since(start))
 
-	// Even identifiers are used for connections from master to node network,
-	// increment by 2 to maintain the invariant.
-	connID := atomic.AddInt64(&a.nextConnID, 2)
+	connID := atomic.AddInt64(&a.nextConnID, 1)
 	dataCh := make(chan []byte, xfrChannelSize)
 	ctx := &connContext{
 		conn:   conn,
@@ -567,8 +570,10 @@ func (a *Client) handleDialRequest(pkt *client.Packet) {
 		klog.ErrorS(err, "stream send failure")
 		return
 	}
-
-	go a.remoteToProxy(connID, ctx)
+	a.muConnIDToDest.Lock()
+	a.connIDToDest[connID] = client.Network_Node
+	a.muConnIDToDest.Unlock()
+	go a.remoteToProxy(connID, ctx, client.Network_Node)
 	go a.proxyToRemote(connID, ctx)
 }
 
@@ -618,8 +623,10 @@ func (a *Client) handleDialResponse(pkt *client.Packet) {
 		},
 	}
 	a.connManager.Add(connID, ctx)
-
-	go a.remoteToProxy(connID, ctx)
+	a.muConnIDToDest.Lock()
+	a.connIDToDest[connID] = client.Network_ControlPlane
+	a.muConnIDToDest.Unlock()
+	go a.remoteToProxy(connID, ctx, client.Network_ControlPlane)
 	go a.proxyToRemote(connID, ctx)
 }
 
@@ -628,13 +635,16 @@ func (a *Client) handleCloseRequest(pkt *client.Packet) {
 	connID := closeReq.ConnectID
 
 	klog.V(4).InfoS("received CLOSE_REQ", "connectionID", connID)
-
+	//a.muConnIDToDest.Lock()
+	////dest := a.connIDToDest[connID]
+	//a.muConnIDToDest.Unlock()
 	ctx, ok := a.connManager.Get(connID)
 	if ok {
 		ctx.cleanup()
 	} else {
 		klog.V(4).InfoS("Failed to find connection context for close", "connectionID", connID)
 		resp := &client.Packet{
+			//Dest:    dest,
 			Type:    client.PacketType_CLOSE_RSP,
 			Payload: &client.Packet_CloseResponse{CloseResponse: &client.CloseResponse{}},
 		}
@@ -697,62 +707,12 @@ func (a *Client) handleConnection(protocol, address string, conn net.Conn) error
 	return nil
 }
 
-// handleConnection connects to the address on the named network, similar to
-// what net.Dial does. The only supported protocol is tcp.
-// TODO(irozzo): check if connection closed while waiting for DIAL_RSP?
-func (a *Client) handleConnection(protocol, address string, conn net.Conn) error {
-	if protocol != "tcp" {
-		return errors.New("protocol not supported")
-	}
-
-	ctx := a.connManager.AddPendingConnection(conn)
-	defer func() {
-		a.connManager.DeletePendingConnection(ctx.random)
-	}()
-
-	req := &client.Packet{
-		Type: client.PacketType_DIAL_REQ,
-		Payload: &client.Packet_DialRequest{
-			DialRequest: &client.DialRequest{
-				Protocol: protocol,
-				Address:  address,
-				Random:   ctx.random,
-			},
-		},
-	}
-	klog.V(5).InfoS("[tracing] send packet", "type", req.Type)
-
-	err := a.stream.Send(req)
-	if err != nil {
-		return err
-	}
-
-	klog.V(5).Infoln("DIAL_REQ sent to proxy server")
-
-	select {
-	case res := <-ctx.resCh:
-		if res.err != "" {
-			return errors.New(res.err)
-		}
-	case <-time.After(30 * time.Second):
-		return errors.New("dial timeout")
-	}
-
-	return nil
-}
-
-func (a *Client) remoteToProxy(connID int64, ctx *connContext) {
-	defer func() {
-		if panicInfo := recover(); panicInfo != nil {
-			klog.V(2).InfoS("Exiting remoteToProxy with recovery", "panicInfo", panicInfo, "connectionID", connID)
-		} else {
-			klog.V(2).InfoS("Exiting remoteToProxy", "connectionID", connID)
-		}
-	}()
+func (a *Client) remoteToProxy(connID int64, ctx *connContext, dest client.Network) {
 	defer ctx.cleanup()
 
 	var buf [1 << 12]byte
 	resp := &client.Packet{
+		Dest: dest,
 		Type: client.PacketType_DATA,
 	}
 
@@ -768,10 +728,12 @@ func (a *Client) remoteToProxy(connID int64, ctx *connContext) {
 			klog.ErrorS(err, "connection read failure", "connectionID", connID)
 			return
 		} else {
-			resp.Payload = &client.Packet_Data{Data: &client.Data{
-				Data:      buf[:n],
-				ConnectID: connID,
-			}}
+			resp.Payload = &client.Packet_Data{
+				Data: &client.Data{
+					Data:      buf[:n],
+					ConnectID: connID,
+				},
+			}
 			if err := a.Send(resp); err != nil {
 				klog.ErrorS(err, "stream send failure", "connectionID", connID)
 			}
