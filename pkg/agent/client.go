@@ -77,8 +77,8 @@ type connectionManager struct {
 	connections map[int64]*connContext
 
 	// pending dial
-	pendingDial     map[int64]*pendingDialContext
 	pendingDialLock sync.RWMutex
+	pendingDial     map[int64]*pendingDialContext
 }
 
 type dialResult struct {
