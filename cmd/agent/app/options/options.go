@@ -79,6 +79,10 @@ func (pm *portMapping) Type() string {
 	return "portMapping"
 }
 
+func (pm *portMapping) IsEmpty() bool {
+	return *pm == portMapping{}
+}
+
 func (o *GrpcProxyAgentOptions) ClientSetConfig(dialOptions ...grpc.DialOption) *agent.ClientSetConfig {
 	return &agent.ClientSetConfig{
 		Address:                 fmt.Sprintf("%s:%d", o.ProxyServerHost, o.ProxyServerPort),
@@ -193,6 +197,11 @@ func (o *GrpcProxyAgentOptions) Validate() error {
 	if err := validateHostnameOrIP(o.BindAddress); err != nil {
 		return fmt.Errorf("agent bind address is invalid: %v", err)
 	}
+	// if we have the zero value the feature is disabled no need to do further
+	// checks
+	if o.ApiServerMapping.IsEmpty() {
+		return nil
+	}
 	if err := validateHostnameOrIP(o.ApiServerMapping.RemoteHost); err != nil {
 		return fmt.Errorf("apiserver address is invalid: %v", err)
 	}
@@ -261,8 +270,8 @@ func NewGrpcProxyAgentOptions() *GrpcProxyAgentOptions {
 		KeepaliveTime:             1 * time.Hour,
 		ServiceAccountTokenPath:   "",
 		WarnOnChannelLimit:        false,
-		ApiServerMapping:          portMapping{LocalPort: 6443, RemoteHost: "localhost", RemotePort: 6443},
 		BindAddress:               "127.0.0.1",
+		ApiServerMapping:          portMapping{},
 	}
 	return &o
 }
