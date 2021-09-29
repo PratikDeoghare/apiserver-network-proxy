@@ -51,7 +51,7 @@ func (a *Agent) run(o *options.GrpcProxyAgentOptions) error {
 		return fmt.Errorf("failed to run proxy connection with %v", err)
 	}
 
-	if features.DefaultMutableFeatureGate.Enabled(features.NodeToMasterTraffic) && !o.ApiServerMapping.IsEmpty() {
+	if features.DefaultMutableFeatureGate.Enabled(features.NodeToMasterTraffic) && !o.APIServerMapping.IsEmpty() {
 		if err := a.runControlPlaneProxy(ctx, o, cs); err != nil {
 			return fmt.Errorf("failed to start listening with %v", err)
 		}
@@ -95,8 +95,8 @@ func (a *Agent) runControlPlaneProxy(ctx context.Context, o *options.GrpcProxyAg
 		ClientSet:  cs,
 		ListenHost: o.BindAddress,
 	}
-	klog.V(1).Infof("Exposing apiserver: %s", &o.ApiServerMapping)
-	return pf.Serve(ctx, agent.PortMapping(o.ApiServerMapping))
+	klog.V(1).Infof("Exposing apiserver: %s", &o.APIServerMapping)
+	return pf.Serve(ctx, agent.PortMapping(o.APIServerMapping))
 }
 
 func (a *Agent) runHealthServer(o *options.GrpcProxyAgentOptions) error {
