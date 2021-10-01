@@ -32,9 +32,69 @@ import (
 	fakeauthenticationv1 "k8s.io/client-go/kubernetes/typed/authentication/v1/fake"
 	k8stesting "k8s.io/client-go/testing"
 
+	"sigs.k8s.io/apiserver-network-proxy/proto/agent"
 	agentmock "sigs.k8s.io/apiserver-network-proxy/proto/agent/mocks"
 	"sigs.k8s.io/apiserver-network-proxy/proto/header"
 )
+
+type testAgent struct {
+	agent.AgentService_ConnectServer
+	hosts string
+}
+
+func (f *testAgent) Context() context.Context {
+	ctx := context.Background()
+	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(header.AgentIdentifiers, f.hosts))
+	return ctx
+}
+
+func TestDefaultBackendStorage_AddRemoveBackend(t *testing.T) {
+	p := NewProxyServer("", []ProxyStrategy{ProxyStrategyDestHost, ProxyStrategyDefaultRoute, ProxyStrategyDefault}, 1, nil)
+
+	a1 := &testAgent{hosts: "host=a1.com"}
+	p.addBackend("a1", a1)
+
+	a2 := new(testAgent)
+	p.addBackend("a2", a2)
+
+	a3 := &testAgent{hosts: "default-route=true"}
+	p.addBackend("a3", a3)
+
+	bm := p.BackendManagers[0]
+	if bm.NumBackends() != 1 {
+		t.Fatalf("expected: %d, got: %d", 1, bm.NumBackends())
+	}
+
+	bm = p.BackendManagers[1]
+	if bm.NumBackends() != 1 {
+		t.Fatalf("expected: %d, got: %d", 1, bm.NumBackends())
+	}
+
+	bm = p.BackendManagers[2]
+	if bm.NumBackends() != 1 {
+		t.Fatalf("expected: %d, got: %d", 1, bm.NumBackends())
+	}
+
+	p.removeBackend("a1", a1)
+	p.removeBackend("a2", a2)
+	p.removeBackend("a3", a3)
+
+	bm = p.BackendManagers[0]
+	if bm.NumBackends() != 0 {
+		t.Fatalf("expected: %d, got: %d", 0, bm.NumBackends())
+	}
+
+	bm = p.BackendManagers[1]
+	if bm.NumBackends() != 0 {
+		t.Fatalf("expected: %d, got: %d", 0, bm.NumBackends())
+	}
+
+	bm = p.BackendManagers[2]
+	if bm.NumBackends() != 0 {
+		t.Fatalf("expected: %d, got: %d", 0, bm.NumBackends())
+	}
+
+}
 
 func TestAgentTokenAuthenticationErrorsToken(t *testing.T) {
 	stub := gomock.NewController(t)

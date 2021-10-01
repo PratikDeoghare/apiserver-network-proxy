@@ -113,6 +113,14 @@ type Identifiers struct {
 	DefaultRoute bool
 }
 
+func (ids Identifiers) IsEmpty() bool {
+	return len(ids.IPv4) == 0 &&
+		len(ids.IPv6) == 0 &&
+		len(ids.Host) == 0 &&
+		len(ids.CIDR) == 0 &&
+		!ids.DefaultRoute
+}
+
 type IdentifierType string
 
 const (
@@ -371,13 +379,13 @@ func (a *Client) Serve() {
 
 		switch pkt.Type {
 		case client.PacketType_DIAL_REQ:
-			klog.V(4).Infoln("received DIAL_REQ")
+			dialReq := pkt.GetDialRequest()
+			klog.V(4).Infoln("received DIAL_REQ to: ", dialReq.Address)
 			resp := &client.Packet{
 				Type:    client.PacketType_DIAL_RSP,
 				Payload: &client.Packet_DialResponse{DialResponse: &client.DialResponse{}},
 			}
 
-			dialReq := pkt.GetDialRequest()
 			resp.GetDialResponse().Random = dialReq.Random
 
 			start := time.Now()
