@@ -260,7 +260,7 @@ func TestNodeToControlPlane(t *testing.T) {
 
 	// create proxy server
 	p := NewProxyServer("", []ProxyStrategy{ProxyStrategyDefault}, 1,
-		&AgentTokenAuthenticationOptions{})
+		&AgentTokenAuthenticationOptions{}, false)
 
 	// start a controlplane server
 	lis, err := net.Listen("tcp", ":0")
