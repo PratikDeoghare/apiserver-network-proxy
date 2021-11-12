@@ -654,12 +654,6 @@ func (a *Client) handleCloseRequest(pkt *client.Packet) {
 			klog.ErrorS(err, "close response send failure", err)
 			return
 		}
-		resp.GetCloseResponse().ConnectID = connID
-		resp.GetCloseResponse().Error = "Unknown connectID"
-		if err := a.Send(resp); err != nil {
-			klog.ErrorS(err, "close response send failure", err)
-			return
-		}
 	}
 }
 
