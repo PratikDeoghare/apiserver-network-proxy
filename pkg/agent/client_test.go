@@ -22,8 +22,9 @@ func TestServeData_NodeToMaster(t *testing.T) {
 	var stream agent.AgentService_ConnectClient
 	stopCh := make(chan struct{})
 	testClient := &Client{
-		connManager: newConnectionManager(),
-		stopCh:      stopCh,
+		nextConnID:   0,
+		connManager:  newConnectionManager(),
+		connIDToDest: make(map[int64]client.Network),
 	}
 	testClient.stream, stream = pipe()
 
@@ -135,8 +136,9 @@ func TestServeData_NodeToMasterConnectionFailure(t *testing.T) {
 	var stream agent.AgentService_ConnectClient
 	stopCh := make(chan struct{})
 	testClient := &Client{
-		connManager: newConnectionManager(),
-		stopCh:      stopCh,
+		connManager:  newConnectionManager(),
+		stopCh:       stopCh,
+		connIDToDest: make(map[int64]client.Network),
 	}
 	testClient.stream, stream = pipe()
 
@@ -183,8 +185,9 @@ func TestServeData_HTTP(t *testing.T) {
 	var stream agent.AgentService_ConnectClient
 	stopCh := make(chan struct{})
 	testClient := &Client{
-		connManager: newConnectionManager(),
-		stopCh:      stopCh,
+		connManager:  newConnectionManager(),
+		stopCh:       stopCh,
+		connIDToDest: make(map[int64]client.Network),
 	}
 	testClient.stream, stream = pipe()
 
@@ -279,8 +282,9 @@ func TestClose_Client(t *testing.T) {
 	var stream agent.AgentService_ConnectClient
 	stopCh := make(chan struct{})
 	testClient := &Client{
-		connManager: newConnectionManager(),
-		stopCh:      stopCh,
+		connManager:  newConnectionManager(),
+		stopCh:       stopCh,
+		connIDToDest: make(map[int64]client.Network),
 	}
 	testClient.stream, stream = pipe()
 
